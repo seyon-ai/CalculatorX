@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html>
+<head>
+    <title>Advanced Calculator (WASM)</title>
+    <style>
+        body { font-family: Arial; margin: 20px; }
+        #output { background: #f0f0f0; padding: 10px; border-radius: 5px; margin-top: 20px; }
+        input, button { padding: 5px; margin: 5px; }
+    </style>
+    <script src="calculator_engine.js"></script>
+    <script>
+        Module.onRuntimeInitialized = function() {
+            // Wrap C functions
+            const evaluate = Module.cwrap('evaluate', 'string', ['string', 'number']);
+            const steps = Module.cwrap('get_steps', 'string', []);
+            const graph = Module.cwrap('graph', 'string', ['string', 'number', 'number', 'number']);
+
+            // Example: evaluate on page load
+            let result = evaluate("sin(pi/2) + 2*3", 1);
+            console.log("Result:", result);
+            console.log("Steps:", steps());
+
+            // Set up UI handlers
+            document.getElementById('evalBtn').onclick = function() {
+                const expr = document.getElementById('expr').value;
+                const res = evaluate(expr, 1);
+                document.getElementById('output').innerText = res;
+                document.getElementById('steps').innerText = steps();
+            };
+
+            document.getElementById('graphBtn').onclick = function() {
+                const expr = document.getElementById('graphExpr').value;
+                const xmin = parseFloat(document.getElementById('xmin').value);
+                const xmax = parseFloat(document.getElementById('xmax').value);
+                const points = parseInt(document.getElementById('points').value);
+                const data = graph(expr, xmin, xmax, points);
+                try {
+                    const parsed = JSON.parse(data);
+                    document.getElementById('graphOutput').innerText = JSON.stringify(parsed, null, 2);
+                } catch(e) {
+                    document.getElementById('graphOutput').innerText = "Error: " + data;
+                }
+            };
+        };
+    </script>
+</head>
+<body>
+    <h1>Advanced Calculator (C++/WebAssembly)</h1>
+    <div>
+        <h3>Evaluate Expression</h3>
+        <input type="text" id="expr" value="sin(pi/2) + 2*3" size="30">
+        <button id="evalBtn">Evaluate</button>
+        <p><strong>Result:</strong> <span id="output"></span></p>
+        <p><strong>Steps:</strong></p>
+        <pre id="steps"></pre>
+    </div>
+    <div>
+        <h3>Graph Function y = f(x)</h3>
+        <input type="text" id="graphExpr" value="x^2" size="20">
+        xmin: <input type="number" id="xmin" value="-2" step="0.1">
+        xmax: <input type="number" id="xmax" value="2" step="0.1">
+        points: <input type="number" id="points" value="10">
+        <button id="graphBtn">Graph</button>
+        <pre id="graphOutput"></pre>
+    </div>
+</body>
+</html>
