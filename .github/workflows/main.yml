@@ -1,0 +1,30 @@
+name: Build and Deploy to GitHub Pages
+
+on:
+  push:
+    branches: [ main ]
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout code
+        uses: actions/checkout@v3
+
+      - name: Setup Emscripten
+        uses: mymindstorm/setup-emsdk@v12
+        with:
+          version: 3.1.45
+
+      - name: Compile with emcc
+        run: |
+          emcc -std=c++17 -O3 calculator_engine.cpp -o calculator_engine.js \
+            -s EXPORTED_FUNCTIONS='["_init_engine","_free_engine","_evaluate","_get_steps","_set_variable","_graph","_free_string"]' \
+            -s EXPORTED_RUNTIME_METHODS='["ccall","cwrap"]' --bind
+
+      - name: Deploy to GitHub Pages
+        uses: peaceiris/actions-gh-pages@v3
+        with:
+          github_token: ${{ secrets.GITHUB_TOKEN }}
+          publish_dir: ./
+          publish_branch: gh-pages
