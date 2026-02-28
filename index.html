@@ -112,7 +112,7 @@
 </head>
 <body>
     <div class="container">
-        <h1>Advanced Calculator</h1>
+        <h1>Ultimate Complex Calculator</h1>
 
         <!-- Expression display -->
         <div id="display" class="display">0</div>
@@ -154,11 +154,25 @@
             <button class="function" onclick="append('log(')">log</button>
             <button class="function" onclick="append('exp(')">exp</button>
             <button onclick="backspace()">⌫</button>
+
+            <button class="function" onclick="append('asin(')">asin</button>
+            <button class="function" onclick="append('acos(')">acos</button>
+            <button class="function" onclick="append('atan(')">atan</button>
+            <button class="function" onclick="append('abs(')">abs</button>
+            <button class="function" onclick="append('fact(')">n!</button>
+
+            <button class="function" onclick="append('pow(')">pow</button>
+            <button class="function" onclick="append('hypot(')">hypot</button>
+            <button class="function" onclick="append('min(')">min</button>
+            <button class="function" onclick="append('max(')">max</button>
+            <button class="operator" onclick="append('&&')">&&</button>
         </div>
 
         <!-- Steps output -->
         <div><strong>Step-by-step:</strong></div>
         <div id="steps" class="steps">Press = to see steps</div>
+
+        <div class="steps"><strong>Pro tips:</strong> Use variables with assignment like <code>x=3+4i</code>, reuse previous result with <code>ans</code>, and build logic with <code>&&</code>, <code>||</code>, <code>!</code>.</div>
 
         <!-- Graphing section -->
         <div class="graph-section">
@@ -218,6 +232,7 @@
             const result = evaluate(currentExpr, 1);
             // Display result (it returns the final result string)
             document.getElementById('display').innerText = result;
+            currentExpr = result;
             // Get steps and display
             const stepText = steps();
             document.getElementById('steps').innerText = stepText;
