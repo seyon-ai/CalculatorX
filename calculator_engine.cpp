@@ -20,6 +20,7 @@
 #include <string>
 #include <vector>
 #include <cstring>
+#include <algorithm>
 
 // ----------------------------------------------------------------------------
 // Forward declarations
@@ -61,6 +62,34 @@ public:
         functions["floor"] = [](const std::vector<Complex>& args) { return std::floor(args[0].real()); };
         functions["ceil"]  = [](const std::vector<Complex>& args) { return std::ceil(args[0].real()); };
         functions["round"] = [](const std::vector<Complex>& args) { return std::round(args[0].real()); };
+        functions["min"]   = [](const std::vector<Complex>& args) {
+            if (args.empty()) throw std::runtime_error("min() requires at least one argument");
+            double result = args[0].real();
+            for (size_t i = 1; i < args.size(); ++i) result = std::min(result, args[i].real());
+            return Complex(result, 0);
+        };
+        functions["max"]   = [](const std::vector<Complex>& args) {
+            if (args.empty()) throw std::runtime_error("max() requires at least one argument");
+            double result = args[0].real();
+            for (size_t i = 1; i < args.size(); ++i) result = std::max(result, args[i].real());
+            return Complex(result, 0);
+        };
+        functions["pow"]   = [](const std::vector<Complex>& args) {
+            if (args.size() != 2) throw std::runtime_error("pow() requires two arguments");
+            return std::pow(args[0], args[1]);
+        };
+        functions["hypot"] = [](const std::vector<Complex>& args) {
+            if (args.size() != 2) throw std::runtime_error("hypot() requires two arguments");
+            return std::hypot(args[0].real(), args[1].real());
+        };
+        functions["fact"]  = [](const std::vector<Complex>& args) {
+            if (args.size() != 1) throw std::runtime_error("fact() requires one argument");
+            double n = args[0].real();
+            if (n < 0 || std::floor(n) != n) throw std::runtime_error("fact() expects a non-negative integer");
+            double result = 1;
+            for (int i = 2; i <= static_cast<int>(n); ++i) result *= i;
+            return Complex(result, 0);
+        };
         // Add more as needed...
     }
 
@@ -122,7 +151,7 @@ public:
 
 class BinaryOpExpr : public Expression {
 public:
-    enum Op { ADD, SUB, MUL, DIV, POW, LT, GT, LE, GE, EQ, NE };
+    enum Op { ADD, SUB, MUL, DIV, POW, LT, GT, LE, GE, EQ, NE, AND, OR };
 private:
     Op op;
     ExprPtr left, right;
@@ -145,6 +174,8 @@ public:
             case GE: return (l.real() >= r.real()) ? 1.0 : 0.0;
             case EQ: return (std::abs(l - r) < 1e-12) ? 1.0 : 0.0;
             case NE: return (std::abs(l - r) >= 1e-12) ? 1.0 : 0.0;
+            case AND: return (std::abs(l) > 1e-12 && std::abs(r) > 1e-12) ? 1.0 : 0.0;
+            case OR: return (std::abs(l) > 1e-12 || std::abs(r) > 1e-12) ? 1.0 : 0.0;
             default: throw std::runtime_error("Unknown binary operator");
         }
     }
@@ -155,6 +186,7 @@ public:
             case DIV: return "/"; case POW: return "^";
             case LT: return "<"; case GT: return ">"; case LE: return "<=";
             case GE: return ">="; case EQ: return "=="; case NE: return "!=";
+            case AND: return "&&"; case OR: return "||";
             default: return "?";
         }
     }
@@ -199,28 +231,81 @@ public:
 };
 
 class UnaryOpExpr : public Expression {
-    std::string funcName;
+    std::string op;
     ExprPtr arg;
 public:
-    UnaryOpExpr(const std::string& name, ExprPtr a) : funcName(name), arg(a) {}
+    UnaryOpExpr(const std::string& o, ExprPtr a) : op(o), arg(a) {}
 
     Complex evaluate(const Environment& env) const override {
-        auto f = env.getFunction(funcName);
-        return f({arg->evaluate(env)});
+        Complex value = arg->evaluate(env);
+        if (op == "-") return -value;
+        if (op == "+") return value;
+        if (op == "!") return std::abs(value) <= 1e-12 ? 1.0 : 0.0;
+        throw std::runtime_error("Unsupported unary operator: " + op);
     }
 
     std::string toString() const override {
-        return funcName + "(" + arg->toString() + ")";
+        return op + arg->toString();
+    }
+};
+
+class FunctionExpr : public Expression {
+    std::string funcName;
+    std::vector<ExprPtr> args;
+public:
+    FunctionExpr(const std::string& name, std::vector<ExprPtr> a) : funcName(name), args(std::move(a)) {}
+
+    Complex evaluate(const Environment& env) const override {
+        auto f = env.getFunction(funcName);
+        std::vector<Complex> evaluated;
+        evaluated.reserve(args.size());
+        for (const auto& arg : args) evaluated.push_back(arg->evaluate(env));
+        return f(evaluated);
+    }
+
+    std::string toString() const override {
+        std::ostringstream oss;
+        oss << funcName << "(";
+        for (size_t i = 0; i < args.size(); ++i) {
+            if (i > 0) oss << ", ";
+            oss << args[i]->toString();
+        }
+        oss << ")";
+        return oss.str();
     }
 
     std::pair<ExprPtr, std::string> simplify() const override {
-        auto argNum = std::dynamic_pointer_cast<NumberExpr>(arg);
-        if (argNum) {
+        bool allNumbers = true;
+        for (const auto& arg : args) {
+            if (!std::dynamic_pointer_cast<NumberExpr>(arg)) {
+                allNumbers = false;
+                break;
+            }
+        }
+        if (allNumbers) {
             Environment env;
             Complex result = evaluate(env);
             return {std::make_shared<NumberExpr>(result), "Evaluate function: " + toString() + " = " + NumberExpr(result).toString()};
         }
         return {nullptr, ""};
+    }
+};
+
+class AssignmentExpr : public Expression {
+    std::string varName;
+    ExprPtr valueExpr;
+public:
+    AssignmentExpr(std::string name, ExprPtr value) : varName(std::move(name)), valueExpr(std::move(value)) {}
+
+    Complex evaluate(const Environment& env) const override {
+        Environment& mutableEnv = const_cast<Environment&>(env);
+        Complex value = valueExpr->evaluate(env);
+        mutableEnv.setVariable(varName, value);
+        return value;
+    }
+
+    std::string toString() const override {
+        return varName + " = " + valueExpr->toString();
     }
 };
 
@@ -291,7 +376,10 @@ class Parser {
     }
 
     // Grammar:
-    // expression = comparison
+    // expression = assignment
+    // assignment = IDENT '=' assignment | logical_or
+    // logical_or = logical_and ( '||' logical_and )*
+    // logical_and = comparison ( '&&' comparison )*
     // comparison = additive ( ('<' | '>' | '<=' | '>=' | '==' | '!=') additive )*
     // additive = multiplicative ( ('+' | '-') multiplicative )*
     // multiplicative = power ( ('*' | '/') power )*
@@ -300,7 +388,44 @@ class Parser {
     // primary = number | variable | '(' expression ')'
 
     ExprPtr parseExpression() {
-        return parseComparison();
+        return parseAssignment();
+    }
+
+    ExprPtr parseAssignment() {
+        if (!currentToken.empty() && (isalpha(currentToken[0]) || currentToken[0] == '_')) {
+            std::string ident = currentToken;
+            size_t savedPos = pos;
+            std::string savedToken = currentToken;
+            nextToken();
+            if (currentToken == "=") {
+                nextToken();
+                ExprPtr rhs = parseAssignment();
+                return std::make_shared<AssignmentExpr>(ident, rhs);
+            }
+            pos = savedPos;
+            currentToken = savedToken;
+        }
+        return parseLogicalOr();
+    }
+
+    ExprPtr parseLogicalOr() {
+        ExprPtr left = parseLogicalAnd();
+        while (currentToken == "||") {
+            nextToken();
+            ExprPtr right = parseLogicalAnd();
+            left = std::make_shared<BinaryOpExpr>(BinaryOpExpr::OR, left, right);
+        }
+        return left;
+    }
+
+    ExprPtr parseLogicalAnd() {
+        ExprPtr left = parseComparison();
+        while (currentToken == "&&") {
+            nextToken();
+            ExprPtr right = parseComparison();
+            left = std::make_shared<BinaryOpExpr>(BinaryOpExpr::AND, left, right);
+        }
+        return left;
     }
 
     ExprPtr parseComparison() {
@@ -358,16 +483,11 @@ class Parser {
     }
 
     ExprPtr parseUnary() {
-        if (currentToken == "+" || currentToken == "-") {
+        if (currentToken == "+" || currentToken == "-" || currentToken == "!") {
             std::string op = currentToken;
             nextToken();
             ExprPtr sub = parseUnary();
-            if (op == "-") {
-                // Unary minus: treat as 0 - sub
-                auto zero = std::make_shared<NumberExpr>(0.0);
-                return std::make_shared<BinaryOpExpr>(BinaryOpExpr::SUB, zero, sub);
-            }
-            return sub; // unary plus does nothing
+            return std::make_shared<UnaryOpExpr>(op, sub);
         }
         // Function call?
         if (isalpha(currentToken[0])) {
@@ -388,11 +508,7 @@ class Parser {
                     }
                 }
                 if (!match(")")) throw std::runtime_error("Expected ')' after function arguments");
-                if (args.size() != 1) {
-                    // For simplicity we only handle unary functions now; can be extended
-                    throw std::runtime_error("Only unary functions supported in this demo");
-                }
-                return std::make_shared<UnaryOpExpr>(funcName, args[0]);
+                return std::make_shared<FunctionExpr>(funcName, args);
             } else {
                 // It's a variable
                 pos = savedPos;
@@ -467,10 +583,12 @@ public:
                 }
                 // Final evaluation
                 Complex result = current->evaluate(env);
+                env.setVariable("ans", result);
                 steps.push_back("Result = " + numberToString(result));
                 return steps.back();
             } else {
                 Complex result = expr->evaluate(env);
+                env.setVariable("ans", result);
                 return numberToString(result);
             }
         } catch (const std::exception& e) {
@@ -492,7 +610,14 @@ public:
         oss << "[";
         try {
             // Temporarily store original x value
-            Complex originalX = env.getVariable("x");
+            Complex originalX = Complex(0, 0);
+            bool hadX = false;
+            try {
+                originalX = env.getVariable("x");
+                hadX = true;
+            } catch (...) {
+                hadX = false;
+            }
             double step = (xmax - xmin) / (n - 1);
             for (int i = 0; i < n; ++i) {
                 double x = xmin + i * step;
@@ -504,7 +629,7 @@ public:
                 oss << "[" << x << "," << y.real() << "]"; // only real part for graphing
             }
             // Restore x
-            env.setVariable("x", originalX);
+            if (hadX) env.setVariable("x", originalX);
         } catch (const std::exception& e) {
             oss << "{\"error\":\"" << e.what() << "\"}";
         }
